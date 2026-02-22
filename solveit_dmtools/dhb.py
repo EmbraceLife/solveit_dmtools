@@ -27,6 +27,7 @@ import json
 import re
 from dialoghelper.core import *
 from lisette import *
+from .core import run_async
 from typing import Optional, Union
 from ipykernel_helper import read_url
 import inspect
@@ -94,6 +95,8 @@ Use a Socratic method - guide through questions rather than providing direct ans
             tools = [read_url]
         if ns is None:
             ns = inspect.currentframe().f_back.f_globals
+        try: self._dname = ns.get('__dialog_name') or find_var('__dialog_name')
+        except ValueError: self._dname = ''
         super().__init__(model=model, sp=sp, temp=temp, search=search, tools=tools, hist=hist, ns=ns, cache=cache, cache_idxs=cache_idxs, ttl=ttl)
 
     def get_openrouter_ignored(self):
@@ -154,7 +157,37 @@ Use a Socratic method - guide through questions rather than providing direct ans
 
 # %% ../nbs/01_dhb.ipynb #a492f6ff
 @patch
-def __call__(self:BackupChat, 
+async def _async_call(self:BackupChat,
+            msg=None,
+            prefill=None,
+            temp=None,
+            think=None,
+            search=None,
+            stream=False,
+            max_steps=2,
+            final_prompt='You have no more tool uses. Please summarize your findings. If you did not complete your goal please tell the user what further work needs to be done so they can choose how best to proceed.',
+            return_all=False,
+            var_names=None, # list of variable names to add to the chat
+            _msg_id=None, # pre-captured msg id from main thread
+            **kwargs,
+            ):
+    dname = '/' + self._dname.lstrip('/') if self._dname else ''
+    msgs = [m for m in await find_msgs(dname=dname) if m['pinned'] or not m['skipped']]
+    curr_msg_id = _msg_id or find_msg_id()
+    last_msg = await read_msg(-1, id=curr_msg_id, dname=dname)
+    curr_msg = await read_msg(0, id=curr_msg_id, dname=dname)
+    if var_names: self.add_vars(var_names)
+    self.hist = self._build_hist(msgs, last_msg=last_msg)
+    start = len(self.hist)
+    await update_msg(id=curr_msg_id, content="# " + curr_msg['content'].replace('\n', '\n# '), skipped=self.hide_msg, dname=dname)
+    response = Chat.__call__(self, msg=msg, prefill=prefill, temp=temp, think=think, search=search, stream=stream, max_steps=max_steps, final_prompt=final_prompt, return_all=return_all, **kwargs)
+    output = self._new_msgs_to_output(start)
+    await update_msg(id=curr_msg_id, o_collapsed=True, dname=dname)
+    await add_msg(content=f"**Prompt ({self.model}):** {msg}", output=output, msg_type='prompt', id=curr_msg_id, dname=dname)
+    return response
+
+@patch
+def __call__(self:BackupChat,
             msg=None,
             prefill=None,
             temp=None,
@@ -167,19 +200,8 @@ def __call__(self:BackupChat,
             var_names=None, # list of variable names to add to the chat
             **kwargs,
             ):
-    msgs = [m for m in find_msgs() if m['pinned'] or not m['skipped']]
-    last_msg = read_msg(-1)
-    curr_msg = read_msg(0)
-    if var_names: self.add_vars(var_names)
-    self.hist = self._build_hist(msgs, last_msg=last_msg)
-    start = len(self.hist)
-    update_msg(id=curr_msg['id'], content="# " + curr_msg['content'].replace('\n', '\n# '), skipped=self.hide_msg)
-    response = Chat.__call__(self, msg=msg, prefill=prefill, temp=temp, think=think, search=search, stream=stream, max_steps=max_steps, final_prompt=final_prompt, return_all=return_all, **kwargs)
-    output = self._new_msgs_to_output(start)
-    # if no exceptions, collapse output
-    update_msg(id=curr_msg['id'], o_collapsed=True)
-    add_msg(content=f"**Prompt ({self.model}):** {msg}", output=output, msg_type='prompt')
-    return response
+    curr_msg_id = find_msg_id()
+    return run_async(self._async_call(msg=msg, prefill=prefill, temp=temp, think=think, search=search, stream=stream, max_steps=max_steps, final_prompt=final_prompt, return_all=return_all, var_names=var_names, _msg_id=curr_msg_id, **kwargs))
 
 @patch
 def _build_hist(self:BackupChat, msgs:list, last_msg=None):

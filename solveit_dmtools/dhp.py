@@ -79,6 +79,7 @@ If you feel stuck, run `dhp.help()` and it will submit the prompt cell it create
 __all__ = ['u', 'p', 'a', 'r', 'doc', 'understand', 'plan', 'act', 'execute', 'x', 'review', 'help', 'Step', 'QQ', 'PolyaUnderstand', 'PolyaPlan', 'PolyaAct', 'PolyaReview']
 
 from dialoghelper.core import *
+from .core import run_async
 import time
 
 # Step: inspired by contextpack.Topic
@@ -101,10 +102,15 @@ class QQ:
         self.msg_type = msg_type
         self.run = run
 
+    async def _async_call(self, _msg_id=None, _dname=None):
+        _msgid = _msg_id or find_msg_id()
+        await update_msg(content=self.content, msg_type=self.msg_type, id=_msgid, dname=_dname)
+        if self.run: time.sleep(0.1); await run_msg(ids=_msgid, dname=_dname)
+
     def __call__(self):
-        _msgid = find_msg_id()
-        update_msg(content=self.content, msg_type=self.msg_type, id=_msgid)
-        if self.run: time.sleep(0.1); run_msg(ids=_msgid)
+        _msg_id = find_msg_id()
+        _dname = find_dname()
+        return run_async(self._async_call(_msg_id=_msg_id, _dname=_dname))
         
     def __repr__(self):
         return f"({self.msg_type}) \"{self.content}\""
@@ -220,4 +226,4 @@ def overview():
     return "\n".join([f"{repr(globals()[x])}\n" for x in __all__ if x[0].islower() and x not in ('help', 'overview', 'act', 'x', 'execute', 'plan', 'understand', 'review')])
     
 def help():
-    QQ(f"Please pick an appropriate next-step/prompt from the below:\n\n{overview()}")()
+    return QQ(f"Please pick an appropriate next-step/prompt from the below:\n\n{overview()}")()

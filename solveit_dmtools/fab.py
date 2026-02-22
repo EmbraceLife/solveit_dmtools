@@ -42,6 +42,8 @@ Most Common Syntax: `prompt="Your Prompt"` in one cell then `fab.p.pattern_name(
 __all__ = ['p', 'compress', 'doc', 'PatternFunction', 'FabricPatterns']
 import os
 import time
+from .core import run_async
+from dialoghelper.core import find_msg_id, find_dname, update_msg, add_msg, run_msg, read_msg
 
 class PatternFunction:
     def __init__(self, func, name, description):
@@ -83,9 +85,8 @@ class FabricPatterns:
             self.help = self.suggest_pattern
     
     def _create_pattern_function(self, pattern_name, pattern_dir, run=False):
-        from dialoghelper.core import read_msg, update_msg, add_msg, run_msg
         """Create a callable function for a pattern"""
-        def pattern_function(prompt:str="prompt"):
+        async def _async_pattern_function(prompt:str="prompt", _msg_id=None, _dname=None):
             system_file = pattern_dir / "system.md"
             user_file = pattern_dir / "user.md"
             
@@ -104,10 +105,15 @@ class FabricPatterns:
             # Add reference to text variable
             prompt_content += f"\n\n${prompt}"
             
-            m = read_msg(0)
-            update_msg(content=f"(From fab.p.{str(pattern_dir).split('/')[-1]} folded below)\n{prompt_content}", msg_type="prompt", i_collapsed=1, id=m['id'])
-            if run: time.sleep(1); run_msg(ids=m['id'])
-            add_msg(content="fab.compress()", msg_type="code")
+            _msgid = _msg_id or find_msg_id()
+            await update_msg(content=f"(From fab.p.{str(pattern_dir).split('/')[-1]} folded below)\n{prompt_content}", msg_type="prompt", i_collapsed=1, id=_msgid, dname=_dname)
+            if run: time.sleep(1); await run_msg(ids=_msgid, dname=_dname)
+            await add_msg(content="fab.compress()", msg_type="code", id=_msgid, dname=_dname)
+
+        def pattern_function(prompt:str="prompt"):
+            _msg_id = find_msg_id()
+            _dname = find_dname()
+            return run_async(_async_pattern_function(prompt, _msg_id=_msg_id, _dname=_dname))
         
         # Wrap the function with PatternFunction
         description = self.pattern_descriptions.get(pattern_name, f"Pattern: {pattern_name}")
@@ -142,12 +148,17 @@ class FabricPatterns:
 # Create the fabric patterns instance
 p = FabricPatterns()
 
+async def _async_compress(_msg_id=None, _dname=None):
+    _msg_id = _msg_id or find_msg_id()
+    m = await read_msg(-1, id=_msg_id, dname=_dname)
+    curr_id = _msg_id
+    if m['msg_type'] == "prompt":
+        await update_msg(i_collapsed=1, o_collapsed=1, skipped=True, id=m['id'], dname=_dname)
+        lines = m['content'].split('\n')
+        await update_msg(content=f"# Prompt {lines[0].replace(' folded below', '')} for {lines[-1]}\n{m['output']}", msg_type="note", id=curr_id, dname=_dname)
+
 def compress():
     """Compress last message's prompt+output into a note (reduce context)"""
-    from dialoghelper import read_msg, update_msg
-    m = read_msg(-1)
-    curr = read_msg(0)
-    if m['msg_type'] == "prompt":
-        update_msg(i_collapsed=1, o_collapsed=1, skipped=True, id=m['id'])
-        lines = m['content'].split('\n')
-        update_msg(content=f"# Prompt {lines[0].replace(' folded below', '')} for {lines[-1]}\n{m['output']}", msg_type="note", id=curr['id'])
+    _msg_id = find_msg_id()
+    _dname = find_dname()
+    return run_async(_async_compress(_msg_id=_msg_id, _dname=_dname))
