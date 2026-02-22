@@ -103,7 +103,7 @@ class FabricPatterns:
                     prompt_content += "\n\n" + user_content
             
             # Add reference to text variable
-            prompt_content += f"\n\n${prompt}"
+            prompt_content += f"\n\n$`{prompt}`"
             
             _msgid = _msg_id or find_msg_id()
             await update_msg(content=f"(From fab.p.{str(pattern_dir).split('/')[-1]} folded below)\n{prompt_content}", msg_type="prompt", i_collapsed=1, id=_msgid, dname=_dname)
