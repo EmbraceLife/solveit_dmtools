@@ -170,10 +170,10 @@ async def _async_call(self:BackupChat,
             var_names=None, # list of variable names to add to the chat
             **kwargs,
             ):
-    dname = '' # '/' + self._dname.lstrip('/') if self._dname else ''
+    dname = '/' + self._dname.lstrip('/') if self._dname else ''
     msgs = [m for m in await find_msgs(dname=dname) if m['pinned'] or not m['skipped']]
-    last_msg = await read_msg(-1, relative=True, dname=dname)
-    curr_msg = await read_msg(0, relative=True, dname=dname)
+    last_msg = await read_msg(-1, relative=True, dname='')
+    curr_msg = await read_msg(0, relative=True, dname='')
     if var_names: self.add_vars(var_names)
     self.hist = self._build_hist(msgs, last_msg=last_msg)
     start = len(self.hist)
