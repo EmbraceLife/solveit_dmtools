@@ -204,10 +204,11 @@ def __call__(self:BackupChat,
             **kwargs,
             ):
     dname =  '/' + self._dname.lstrip('/') if self._dname else ''
-    last_msg = call_endp('read_msg_', dname, json=True, n=-1, relative=True)
     if msg_id is not None:
+        last_msg = call_endp('read_msg_', dname, json=True, id=msg_id, n=-1, relative=True)
         curr_msg = call_endp('read_msg_', dname, json=True, id=msg_id, n=0, relative=True)
     else:
+        last_msg = call_endp('read_msg_', dname, json=True, n=-1, relative=True)
         curr_msg = call_endp('read_msg_', dname, json=True, n=0, relative=True)
     return run_async(self._async_call(msg=msg, prefill=prefill, temp=temp, think=think, search=search, stream=stream, max_steps=max_steps, final_prompt=final_prompt, return_all=return_all, var_names=var_names, last_msg=last_msg, curr_msg=curr_msg, **kwargs))
 
