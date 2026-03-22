@@ -33,6 +33,14 @@ from ipykernel_helper import read_url
 import inspect
 from fastcore.all import patch
 
+def _default_sanitize(text: str) -> str:
+    "Strip &`tool` and $`var` references from untrusted input, replacing with a labeled placeholder."
+    def replace(m):
+        kind = 'var' if m.group(0)[0] == '$' else 'tool'
+        name = re.search(r'`([^`]*)`', m.group(0)).group(1).strip()
+        return f'[sanitized {kind}: {name}]'
+    return re.sub(r'[&$]\s*`[^`]*`', replace, text)
+
 _DEFAULT_SP = """You're continuing a conversation from another session. Variables are marked as $`varname` and tools as &`toolname` in the context.
 
 **Available Resources**
@@ -75,6 +83,7 @@ class BackupChat(Chat):
                 ttl=None,
                 var_names: Union[list,str] = None,
                 hide_msg:bool=False, # whether to hide the cell that includes a BackupChat.__call__
+                sanitize_fn=_default_sanitize, # applied to all messages; pass None to disable
     ):
         if sp is None or sp == '': sp = _DEFAULT_SP
         if self.models is None:
@@ -89,6 +98,7 @@ class BackupChat(Chat):
             raise ValueError(f"Model {model} not found in LiteLLM models. Please check the model name or use a different model.")
         self.model = model
         self.hide_msg = hide_msg
+        self.sanitize_fn = sanitize_fn
         self.vars_for_hist = dict()
         if var_names is not None:
             self.add_vars(var_names)
@@ -176,6 +186,7 @@ async def _async_call(self:BackupChat,
     dname = '/' + self._dname.lstrip('/') if self._dname else ''
     msgs = [m for m in await find_msgs(dname=dname) if m['pinned'] or not m['skipped']]
     if var_names: self.add_vars(var_names)
+    if msg and self.sanitize_fn: msg = self.sanitize_fn(msg)
     self.hist = self._build_hist(msgs, last_msg=last_msg)
     start = len(self.hist)
     instance_name = next((k for k, v in self.ns.items() if v is self), None)
@@ -221,11 +232,12 @@ def _build_hist(self:BackupChat, msgs:list, last_msg=None):
     hist = []
     for m in msgs[:curr+1]:
         eol = '\n'
-        if m['msg_type'] == 'code': hist.append({'role': 'user', 'content': f"```python{eol}{m['content']}{eol}```{eol}Output: {m.get('output', '[]')}"})
-        elif m['msg_type'] == 'note' or m['msg_type'] == 'raw': hist.append({'role': 'user', 'content': m['content']})
+        san = self.sanitize_fn or (lambda x: x)
+        if m['msg_type'] == 'code': hist.append({'role': 'user', 'content': f"```python{eol}{san(m['content'])}{eol}```{eol}Output: {san(m.get('output', '[]'))}"})
+        elif m['msg_type'] == 'note' or m['msg_type'] == 'raw': hist.append({'role': 'user', 'content': san(m['content'])})
         elif m['msg_type'] == 'prompt':
-            hist.append({'role': 'user', 'content': m['content']})
-            if m.get('output'): hist.append({'role': 'assistant', 'content': m['output']})
+            hist.append({'role': 'user', 'content': san(m['content'])})
+            if m.get('output'): hist.append({'role': 'assistant', 'content': san(m['output'])})
     
     hist = hist + self._vars_as_msg() + [{'role': 'assistant', 'content': '.'}] # empty assistant msg to prevent flipping chat msg to look like prefill
     return hist
